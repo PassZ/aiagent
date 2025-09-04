@@ -1,65 +1,92 @@
 import os
 import subprocess
+import sys
+from google.genai import types
 
 
-def run_python_file(working_directory, file_path, args=[]):
+def run_python_file(working_directory, file_path, args=None):
+    """
+    Executes a Python file with optional arguments, constrained to the working directory.
+    """
     try:
-        # Get absolute paths for proper comparison
         abs_working_dir = os.path.abspath(working_directory)
         full_path = os.path.abspath(os.path.join(working_directory, file_path))
 
-        # Check if the target path is within the working directory
         if not (
             full_path == abs_working_dir
             or full_path.startswith(abs_working_dir + os.sep)
         ):
-            return f'Error: Cannot execute "{file_path}" as it is outside the permitted working directory'
+            return f'Error: Cannot run "{file_path}" as it is outside the permitted working directory'
 
     except (TypeError, ValueError, OSError) as e:
         return f"Error: Invalid path arguments - {str(e)}"
 
-    # Check if file exists
-    if not os.path.exists(full_path):
-        return f'Error: File "{file_path}" not found.'
+    try:
+        if not os.path.isfile(full_path):
+            return f"Error: {file_path} is not a file or does not exist"
+    except (PermissionError, OSError) as e:
+        return f"Error: Cannot access {file_path} - {str(e)}"
 
-    # Check if file is a Python file
-    if not file_path.endswith(".py"):
-        return f'Error: "{file_path}" is not a Python file.'
+    if not file_path.endswith('.py'):
+        return f"Error: {file_path} is not a Python file"
 
     try:
+        # Prepare command
+        cmd = [sys.executable, full_path]
+        if args:
+            cmd.extend(args)
+
         # Run the Python file
-        completed_process = subprocess.run(
-            ["python3", full_path] + args,
+        result = subprocess.run(
+            cmd,
+            cwd=working_directory,
             capture_output=True,
-            timeout=30,
-            cwd=abs_working_dir,
             text=True,
+            timeout=30  # 30 second timeout
         )
 
-        # Format output
-        stdout_output = completed_process.stdout
-        stderr_output = completed_process.stderr
+        output = ""
+        if result.stdout:
+            output += f"STDOUT:\n{result.stdout}\n"
+        if result.stderr:
+            output += f"STDERR:\n{result.stderr}\n"
+        if result.returncode != 0:
+            output += f"Exit code: {result.returncode}\n"
 
-        # Build result string
-        result_parts = []
-
-        if stdout_output:
-            result_parts.append(f"STDOUT:\n{stdout_output}")
-
-        if stderr_output:
-            result_parts.append(f"STDERR:\n{stderr_output}")
-
-        if completed_process.returncode != 0:
-            result_parts.append(
-                f"Process exited with code {completed_process.returncode}"
-            )
-
-        if not stdout_output and not stderr_output:
-            return "No output produced."
-
-        return "\n".join(result_parts)
+        return output.strip() if output else "Script executed successfully with no output"
 
     except subprocess.TimeoutExpired:
-        return "Error: executing Python file: Process timed out after 30 seconds"
-    except Exception as e:
-        return f"Error: executing Python file: {e}"
+        return f"Error: Script {file_path} timed out after 30 seconds"
+    except PermissionError:
+        return f"Error: Permission denied executing {file_path}"
+    except OSError as e:
+        return f"Error: Cannot execute file {file_path} - {str(e)}"
+
+
+# Function declaration (schema) for "run_python_file"
+schema_run_python_file = types.FunctionDeclaration(
+    name="run_python_file",
+    description=(
+        "Executes a Python file with optional arguments, "
+        "constrained to the working directory."
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description=(
+                    "The path to the Python file to execute, relative to the working directory."
+                ),
+            ),
+            "args": types.Schema(
+                type=types.Type.ARRAY,
+                items=types.Schema(type=types.Type.STRING),
+                description=(
+                    "Optional list of command-line arguments to pass to the Python script."
+                ),
+            ),
+        },
+        required=["file_path"],
+    ),
+)

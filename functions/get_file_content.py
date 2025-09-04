@@ -1,14 +1,15 @@
 import os
-from .config import MAX_FILE_SIZE_CHARS
+from google.genai import types
 
 
 def get_file_content(working_directory, file_path):
+    """
+    Reads and returns the contents of a file, constrained to the working directory.
+    """
     try:
-        # Get absolute paths for proper comparison
         abs_working_dir = os.path.abspath(working_directory)
         full_path = os.path.abspath(os.path.join(working_directory, file_path))
 
-        # Check if the target path is within the working directory
         if not (
             full_path == abs_working_dir
             or full_path.startswith(abs_working_dir + os.sep)
@@ -20,25 +21,44 @@ def get_file_content(working_directory, file_path):
 
     try:
         if not os.path.isfile(full_path):
-            return f'Error: File not found or is not a regular file: "{file_path}"'
+            return f"Error: {file_path} is not a file or does not exist"
     except (PermissionError, OSError) as e:
-        return f"Error: Cannot access file {file_path} - {str(e)}"
+        return f"Error: Cannot access {file_path} - {str(e)}"
 
     try:
-        with open(full_path, "r", encoding="utf-8") as file:
+        with open(full_path, 'r', encoding='utf-8') as file:
             content = file.read()
-
-        if len(content) > MAX_FILE_SIZE_CHARS:
-            content = content[:MAX_FILE_SIZE_CHARS]
-            content += (
-                f'[...File "{file_path}" truncated at {MAX_FILE_SIZE_CHARS} characters]'
-            )
-
+        
+        # Truncate content if it exceeds 10,000 characters
+        if len(content) > 10000:
+            content = content[:10000] + "\n... (truncated)"
+        
         return content
-
     except PermissionError:
-        return f"Error: Permission denied reading file {file_path}"
+        return f"Error: Permission denied reading {file_path}"
     except UnicodeDecodeError:
-        return f"Error: Cannot decode file {file_path} - file may be binary"
+        return f"Error: Cannot decode {file_path} as UTF-8 text"
     except OSError as e:
         return f"Error: Cannot read file {file_path} - {str(e)}"
+
+
+# Function declaration (schema) for "get_file_content"
+schema_get_file_content = types.FunctionDeclaration(
+    name="get_file_content",
+    description=(
+        "Reads and returns the contents of a file, "
+        "constrained to the working directory."
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description=(
+                    "The path to the file to read, relative to the working directory."
+                ),
+            ),
+        },
+        required=["file_path"],
+    ),
+)
