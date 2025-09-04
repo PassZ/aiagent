@@ -124,32 +124,69 @@ def main():
         )
     ]
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-001",
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions], system_instruction=system_prompt
-        ),
-    )
+    # Conversation loop with max 20 iterations
+    max_iterations = 20
+    for iteration in range(max_iterations):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-001",
+                contents=messages,
+                config=types.GenerateContentConfig(
+                    tools=[available_functions], system_instruction=system_prompt
+                ),
+            )
 
-    if getattr(response, "function_calls", None):
-        for fc in response.function_calls:
-            # Use call_function to handle the function call
-            function_call_result = call_function(fc, verbose=verbose)
+            # Add each candidate's content to messages
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'content') and candidate.content:
+                        messages.append(candidate.content)
+
+            # Check if we have function calls to execute
+            if getattr(response, "function_calls", None):
+                function_responses = []
+                
+                for fc in response.function_calls:
+                    # Use call_function to handle the function call
+                    function_call_result = call_function(fc, verbose=verbose)
+                    
+                    # Validate the response structure
+                    if not (function_call_result.parts and 
+                           len(function_call_result.parts) > 0 and 
+                           hasattr(function_call_result.parts[0], 'function_response') and
+                           function_call_result.parts[0].function_response and
+                           hasattr(function_call_result.parts[0].function_response, 'response')):
+                        raise RuntimeError("Invalid function call result structure")
+                    
+                    # Print result if verbose
+                    if verbose:
+                        print(f"-> {function_call_result.parts[0].function_response.response}")
+                    
+                    # Collect function responses
+                    function_responses.extend(function_call_result.parts)
+                
+                # Add function responses as user message
+                if function_responses:
+                    messages.append(types.Content(
+                        role="user",
+                        parts=function_responses
+                    ))
+                
+                # Continue the loop to let the LLM process the function results
+                continue
             
-            # Validate the response structure
-            if not (function_call_result.parts and 
-                   len(function_call_result.parts) > 0 and 
-                   hasattr(function_call_result.parts[0], 'function_response') and
-                   function_call_result.parts[0].function_response and
-                   hasattr(function_call_result.parts[0].function_response, 'response')):
-                raise RuntimeError("Invalid function call result structure")
-            
-            # Print result if verbose
-            if verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+            # Check if we have a final text response
+            if hasattr(response, 'text') and response.text:
+                print("Final response:")
+                print(response.text.strip())
+                break
+                
+        except Exception as e:
+            print(f"Error during conversation: {e}")
+            break
+    
     else:
-        print(getattr(response, "text", "").strip())
+        print(f"Reached maximum iterations ({max_iterations}). Stopping.")
 
 
 if __name__ == "__main__":
